@@ -2,8 +2,10 @@
 #include <Bounce2.h>
 #include <Rotary.h>
 
+int midiChannel = 1;
+
 //Knob Steps
-int SmallKnob = 6;
+int SmallKnob = 2;
 int BigKnob = 1;
 
 //PINS
@@ -33,25 +35,36 @@ int greenPin = 22;
 
 
 //SETTINGS
-int state = 0;
+int toggleState = 0;
+int lastToggleState = 0;
 float brightnessMultiplier = 0.1f;
 
 //GLOBAL VARS
-float redDesired = 0;
-float blueDesired = 0;
-float greenDesired = 0;
+float red = 0;
+float blue = 0;
+float green = 0;
 float redVal = 0;
 float blueVal = 0;
 float greenVal = 0;
-int val[] = {100, 100, 100};
-int lastval[] = {0, 0, 0};
-bool volChanged = false;
+
+int bigKnobVal = 0;
+int smallKnobVal = 0;
+int bigKnobLastVal = 0;
+int smallKnobLastVal = 0;
+
+bool bigKnobChanged = false;
+bool smallKnobChanged = false;
+
+bool toggleChanged = false;
+
 Bounce debouncer1 = Bounce();
 Bounce debouncer2 = Bounce();
 Bounce debouncer3 = Bounce();
 Bounce debouncer4 = Bounce();
 Bounce debouncer5 = Bounce();
 Bounce debouncer6 = Bounce();
+Bounce debouncer7 = Bounce();
+Bounce debouncer8 = Bounce();
 
 Rotary encoder1 = Rotary(encoderApin1, encoderApin2);
 Rotary encoder2 = Rotary(encoderBpin1, encoderBpin2);
@@ -89,8 +102,9 @@ void setup() {
 
 void loop() {
   // put your main code here, to run repeatedly:
-  checkState();
-  checkDials();
+  checkToggle();
+  checkBigKnob();
+  checkSmallKnob();
   checkButtons();
 
   queueMidi();
@@ -99,42 +113,74 @@ void loop() {
 
   while (usbMIDI.read()) {
   }
-  
+
   delay(1);
 }
 
 void queueMidi() {
-  if (debouncer1.rose())
-    sendMidi(state, 21, 128, 0);
-  if (debouncer1.fell())
-    sendMidi(state, 21, 128, 1);
-  if (debouncer2.rose())
-    sendMidi(state, 22, 128, 0);
-  if (debouncer2.fell())
-    sendMidi(state, 22, 128, 1);
-  if (debouncer3.rose())
-    sendMidi(state, 23, 128, 0);
-  if (debouncer3.fell())
-    sendMidi(state, 23, 128, 1);
-  if (debouncer4.rose())
-    sendMidi(state, 24, 128, 0);
-  if (debouncer4.fell())
-    sendMidi(state, 24, 128, 1);
-  if (debouncer5.rose())
-    sendMidi(state, 25, 128, 0);
-  if (debouncer5.fell())
-    sendMidi(state, 25, 128, 1);
-  if (debouncer6.rose())
-    sendMidi(state, 26, 128, 0);
-  if (debouncer6.fell())
-    sendMidi(state, 26, 128, 1);
+  if (debouncer1.rose()) {
+    sendMidi(midiChannel, 21, 128, 0);
+  }
+  if (debouncer1.fell()) {
+    sendMidi(midiChannel, 21, 128, 1);
+  }
+  if (debouncer2.rose()) {
+    sendMidi(midiChannel, 22, 128, 0);
+  }
+  if (debouncer2.fell()) {
+    sendMidi(midiChannel, 22, 128, 1);
+  }
+  if (debouncer3.rose()) {
+    sendMidi(midiChannel, 23, 128, 0);
+  }
+  if (debouncer3.fell()) {
+    sendMidi(midiChannel, 23, 128, 1);
+  }
+  if (debouncer4.rose()) {
+    sendMidi(midiChannel, 24, 128, 0);
+  }
+  if (debouncer4.fell()) {
+    sendMidi(midiChannel, 24, 128, 1);
+  }
+  if (debouncer5.rose()) {
+    sendMidi(midiChannel, 25, 128, 0);
+  }
+  if (debouncer5.fell()) {
+    sendMidi(midiChannel, 25, 128, 1);
+  }
+  if (debouncer6.rose()) {
+    sendMidi(midiChannel, 26, 128, 0);
+  }
+  if (debouncer6.fell()) {
+    sendMidi(midiChannel, 26, 128, 1);
+  }
 
-  if (volChanged)
-    sendMidi(state, 11, val[state], 2);
+  if (toggleChanged) {
+    switch (toggleState) {
+      case 0:
+        sendMidi(midiChannel, 27, 128, 1);
+        break;
+      case 1:
+        sendMidi(midiChannel, 27, 128, 0);
+        sendMidi(midiChannel, 28, 128, 0);
+        break;
+      case 2:
+        sendMidi(midiChannel, 28, 128, 1);
+        break;
+      default:
+        break;
+    }
+  }
+
+  if (bigKnobChanged) {
+    sendMidi(midiChannel, 11, bigKnobVal, 2);
+  }
+  if (smallKnobChanged) {
+    sendMidi(midiChannel, 12, smallKnobVal, 2);
+  }
 }
 
-void sendMidi(int channel, int note, int vel, int type)
-{
+void sendMidi(int channel, int note, int vel, int type) {
   Serial.print("note: ");
   Serial.print(note);
 
@@ -169,64 +215,87 @@ void checkButtons() {
   debouncer6.update();
 }
 
-void checkState() {
-  if (digitalRead(switchpin1) == HIGH)
-    state = 0;
-  else if (digitalRead(switchpin2) == HIGH)
-    state = 2;
-  else
-    state = 1;
+void checkToggle() {
+  toggleChanged = false;
+
+  if (digitalRead(switchpin1) == HIGH) {
+    toggleState = 0;
+  }
+  else if (digitalRead(switchpin2) == HIGH) {
+    toggleState = 2;
+  }
+  else {
+    toggleState = 1;
+  }
+
+  if (toggleState != lastToggleState) {
+    lastToggleState = toggleState;
+    toggleChanged = true;
+  }
 }
 
-void checkDials() {
-  volChanged = false;
-  
+void checkSmallKnob() {
+  smallKnobChanged = false;
+
   encoder1result = encoder1.process();
   if (encoder1result) {
-    if (encoder1result == DIR_CW)
-      val[state] = min(val[state] + SmallKnob, 128);
-    else
-      val[state] = max(val[state] - SmallKnob, 0);
+    if (encoder1result == DIR_CW) {
+      smallKnobVal = min(smallKnobVal + SmallKnob, 128);
+    }
+    else {
+      smallKnobVal = max(smallKnobVal - SmallKnob, 0);
+    }
   }
+
+  if (smallKnobVal != smallKnobLastVal) {
+    smallKnobLastVal = smallKnobVal;
+    smallKnobChanged = true;
+  }
+}
+
+void checkBigKnob() {
+  bigKnobChanged = false;
 
   encoder2result = encoder2.process();
   if (encoder2result) {
-    if (encoder2result == DIR_CW)
-      val[state] = min(val[state] + BigKnob, 128);
-    else
-      val[state] = max(val[state] - BigKnob, 0);
+    if (encoder2result == DIR_CW) {
+      bigKnobVal = min(bigKnobVal + BigKnob, 128);
+    }
+    else {
+      bigKnobVal = max(bigKnobVal - BigKnob, 0);
+    }
   }
 
-  if (val[state] != lastval[state]) {
-    lastval[state] = val[state];
-    volChanged = true;
+  if (bigKnobVal != bigKnobLastVal) {
+    bigKnobLastVal = bigKnobVal;
+    bigKnobChanged = true;
   }
 }
 
 void lerpLED() {
-  switch (state) {
+  switch (toggleState) {
     case 0:
-      redDesired = 100;
-      blueDesired = 0;
-      greenDesired = 0;
+      red = 100;
+      blue = 0;
+      green = 0;
       break;
     case 1:
-      redDesired = 0;
-      blueDesired = 100;
-      greenDesired = 0;
+      red = 0;
+      blue = 0;
+      green = 100;
       break;
     case 2:
-      redDesired = 0;
-      blueDesired = 0;
-      greenDesired = 100;
+      red = 0;
+      blue = 100;
+      green = 0;
       break;
     default:
       break;
   }
 
-  redVal = lerp(redVal, redDesired, 0.005f);
-  blueVal = lerp(blueVal, blueDesired, 0.005f);
-  greenVal = lerp(greenVal, greenDesired, 0.005f);
+  redVal = lerp(redVal, red, 0.005f);
+  blueVal = lerp(blueVal, blue, 0.005f);
+  greenVal = lerp(greenVal, green, 0.005f);
 
   analogWrite(redPin, redVal * brightnessMultiplier);
   analogWrite(bluePin, blueVal * brightnessMultiplier);
